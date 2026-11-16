@@ -294,6 +294,12 @@ CREATE INDEX idx_riwayat_stok_create_at
 
 INSERT INTO users (username, password, role, status) VALUES
 (
+    'super_admin',
+    '$2y$10$D3GvFXArHb/8Ik8RQ5NJNeJyqohmVQHcjDqt/0ukOe.EEH9vT9t0u',
+    'super_admin',
+    'aktif'
+),
+(
     'owner',
     '$2y$10$D3GvFXArHb/8Ik8RQ5NJNeJyqohmVQHcjDqt/0ukOe.EEH9vT9t0u',
     'admin',
@@ -376,138 +382,3 @@ VALUES
     (6, 9, 30.00)
 
 ON CONFLICT (id_menu, id_bahan) DO NOTHING;
-
-
--- =============================================================================
--- 15. SINKRONISASI SEQUENCE ID
--- =============================================================================
-
--- Menyesuaikan sequence agar ID berikutnya tidak bentrok
--- dengan ID yang sudah ditentukan pada data awal.
-
-SELECT setval(
-    pg_get_serial_sequence('users', 'id_user'),
-    COALESCE((SELECT MAX(id_user) FROM users), 1),
-    EXISTS (SELECT 1 FROM users)
-);
-
-SELECT setval(
-    pg_get_serial_sequence('bahan_baku', 'id_bahan'),
-    COALESCE((SELECT MAX(id_bahan) FROM bahan_baku), 1),
-    EXISTS (SELECT 1 FROM bahan_baku)
-);
-
-SELECT setval(
-    pg_get_serial_sequence('menu', 'id_menu'),
-    COALESCE((SELECT MAX(id_menu) FROM menu), 1),
-    EXISTS (SELECT 1 FROM menu)
-);
-
-
--- =============================================================================
--- 16. QUERY PENGECEKAN DATABASE
--- =============================================================================
-
--- Mengecek jumlah data setiap tabel.
-
-SELECT 'users' AS nama_tabel, COUNT(*) AS jumlah_data FROM users
-UNION ALL
-SELECT 'shift', COUNT(*) FROM shift
-UNION ALL
-SELECT 'pengeluaran_shift', COUNT(*) FROM pengeluaran_shift
-UNION ALL
-SELECT 'menu', COUNT(*) FROM menu
-UNION ALL
-SELECT 'bahan_baku', COUNT(*) FROM bahan_baku
-UNION ALL
-SELECT 'resep', COUNT(*) FROM resep
-UNION ALL
-SELECT 'transaksi', COUNT(*) FROM transaksi
-UNION ALL
-SELECT 'detail_transaksi', COUNT(*) FROM detail_transaksi
-UNION ALL
-SELECT 'riwayat_stok', COUNT(*) FROM riwayat_stok;
-
-
--- Mengecek data akun pengguna.
-
-SELECT
-    id_user,
-    username,
-    role,
-    status
-FROM users
-ORDER BY id_user;
-
-
--- Mengecek daftar menu.
-
-SELECT
-    id_menu,
-    nama_menu,
-    kategori,
-    harga,
-    hpp,
-    stok_menu,
-    status
-FROM menu
-ORDER BY id_menu;
-
-
--- Mengecek daftar bahan baku.
-
-SELECT
-    id_bahan,
-    nama_bahan,
-    stok_bahan,
-    satuan,
-    minimum_stok,
-    status_stok
-FROM bahan_baku
-ORDER BY id_bahan;
-
-
--- Mengecek komposisi resep setiap menu.
-
-SELECT
-    m.nama_menu,
-    b.nama_bahan,
-    r.jumlah_pemakaian,
-    b.satuan
-FROM resep r
-JOIN menu m
-    ON r.id_menu = m.id_menu
-JOIN bahan_baku b
-    ON r.id_bahan = b.id_bahan
-ORDER BY m.id_menu, b.id_bahan;
-
-
--- Mengecek struktur tabel riwayat stok.
-
-SELECT
-    column_name,
-    data_type,
-    is_nullable,
-    column_default
-FROM information_schema.columns
-WHERE table_schema = 'public'
-  AND table_name = 'riwayat_stok'
-ORDER BY ordinal_position;
-
-
--- Mengecek riwayat perubahan stok.
-
-SELECT
-    id_riwayat,
-    nama_bahan,
-    jenis,
-    jumlah,
-    satuan,
-    stok_sebelum,
-    stok_sesudah,
-    sumber,
-    id_transaksi,
-    keterangan,
-    create_at
-FROM riwayat_stok
-ORDER BY id_riwayat DESC;

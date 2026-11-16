@@ -1,262 +1,526 @@
+
 <?php
 // models/UserModel.php
-// Model Pengguna (Users & Pegawai) untuk KolegaOps POS Warkop
+// Model Pengguna untuk KolegaOps POS Warkop
+// Role: super_admin, admin, kasir
 
 class UserModel
 {
     private PDO $pdo;
 
-    /**
-     * Inisialisasi Model dengan koneksi PDO PostgreSQL
-     */
     public function __construct(PDO $pdo)
     {
         $this->pdo = $pdo;
     }
 
-    /**
-     * Mengambil data pengguna dari tabel users berdasarkan username (untuk login)
-     *
-     * @param string $username
-     * @return array|null Mengembalikan array data pengguna lengkap atau null jika tidak ditemukan
-     */
+    // -------------------------------------------------------------------------
+    // 1. Normalisasi Role
+    // -------------------------------------------------------------------------
+
+    private function normalizeRole(string $role): string
+    {
+        $role = strtolower(trim($role));
+
+        if ($role === 'owner') {
+            return 'admin';
+        }
+
+        if ($role === 'pegawai') {
+            return 'kasir';
+        }
+
+        return $role;
+    }
+
+    private function isValidRole(string $role): bool
+    {
+        return in_array(
+            $this->normalizeRole($role),
+            ['super_admin', 'admin', 'kasir'],
+            true
+        );
+    }
+
+    private function isValidStatus(string $status): bool
+    {
+        return in_array(
+            strtolower(trim($status)),
+            ['aktif', 'nonaktif'],
+            true
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Mengambil Data Pengguna untuk Login
+    // -------------------------------------------------------------------------
+
     public function findByUsername(string $username): ?array
     {
-        $sql = "SELECT id_user, username, password, role, status, create_at, update_at 
-                FROM users 
-                WHERE LOWER(username) = LOWER(:username) 
-                LIMIT 1";
+        $sql = "
+            SELECT
+                id_user,
+                username,
+                password,
+                role,
+                status,
+                create_at,
+                update_at
+            FROM users
+            WHERE LOWER(username) = LOWER(:username)
+            LIMIT 1
+        ";
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':username' => trim($username)]);
+        $stmt->execute([
+            ':username' => trim($username)
+        ]);
+
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $user ?: null;
     }
 
-    /**
-     * Mengambil data pengguna berdasarkan ID Pengguna
-     *
-     * @param int $id_user
-     * @return array|null
-     */
+    // -------------------------------------------------------------------------
+    // 3. Mengambil Pengguna Berdasarkan ID
+    // -------------------------------------------------------------------------
+
     public function findById(int $id_user): ?array
     {
-        $sql = "SELECT id_user, username, role, status, create_at, update_at 
-                FROM users 
-                WHERE id_user = :id_user 
-                LIMIT 1";
+        $sql = "
+            SELECT
+                id_user,
+                username,
+                role,
+                status,
+                create_at,
+                update_at
+            FROM users
+            WHERE id_user = :id_user
+            LIMIT 1
+        ";
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':id_user' => $id_user]);
+        $stmt->execute([
+            ':id_user' => $id_user
+        ]);
+
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $user ?: null;
     }
 
-    /**
-     * Alias untuk findById sesuai konvensi MVC
-     *
-     * @param int $id
-     * @return array|null
-     */
     public function getUserById(int $id): ?array
     {
         return $this->findById($id);
     }
 
-    /**
-     * Mengambil seluruh daftar pengguna (basic)
-     *
-     * @return array
-     */
+    // -------------------------------------------------------------------------
+    // 4. Mengambil Seluruh Pengguna
+    // -------------------------------------------------------------------------
+
     public function getAll(): array
     {
-        $sql = "SELECT id_user, username, role, status, create_at, update_at 
-                FROM users 
-                ORDER BY id_user ASC";
+        $sql = "
+            SELECT
+                id_user,
+                username,
+                role,
+                status,
+                create_at,
+                update_at
+            FROM users
+            ORDER BY id_user ASC
+        ";
 
         $stmt = $this->pdo->query($sql);
+
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    // -------------------------------------------------------------------------
+    // 5. Mengambil Daftar Akun untuk Halaman Kelola Akun
+    // -------------------------------------------------------------------------
+
     /**
-     * Mengambil seluruh data akun pengguna/pegawai lengkap dengan info shift hari ini
+     * Super Admin:
+     * - Melihat akun Super Admin, Admin, dan Pegawai.
+     * - Akun Super Admin hanya dapat dilihat.
      *
-     * @return array
+     * Admin:
+     * - Melihat akun Super Admin dan Pegawai.
+     * - Tidak melihat akun Admin lainnya.
+     * - Akun Super Admin hanya dapat dilihat.
      */
-    public function getAllUsers(): array
+
+    public function getAllUsers(?string $viewerRole = null): array
     {
+        $viewerRole = $this->normalizeRole($viewerRole ?? '');
+
+        if (!in_array($viewerRole, ['admin', 'super_admin'], true)) {
+            return [];
+        }
+
+        if ($viewerRole === 'admin') {
+            $where = "
+                WHERE LOWER(u.role) IN (
+                    'super_admin',
+                    'kasir',
+                    'pegawai'
+                )
+            ";
+        } else {
+            $where = "
+                WHERE LOWER(u.role) IN (
+                    'super_admin',
+                    'admin',
+                    'owner',
+                    'kasir',
+                    'pegawai'
+                )
+            ";
+        }
+
         $sql = "
-            SELECT 
+            SELECT
                 u.id_user AS id,
                 u.username,
                 INITCAP(u.username) AS nama,
-                CASE 
-                    WHEN LOWER(u.role) IN ('owner', 'admin') THEN 'Owner'
-                    ELSE 'Pegawai'
+
+                CASE
+                    WHEN LOWER(u.role) = 'super_admin'
+                        THEN 'Super Admin'
+                    WHEN LOWER(u.role) IN ('owner', 'admin')
+                        THEN 'Admin'
+                    WHEN LOWER(u.role) IN ('kasir', 'pegawai')
+                        THEN 'Pegawai'
+                    ELSE 'Tidak Diketahui'
                 END AS role,
-                u.role AS raw_role,
-                CASE 
-                    WHEN LOWER(u.status) = 'aktif' THEN 'Aktif'
+
+                LOWER(u.role) AS raw_role,
+
+                CASE
+                    WHEN LOWER(u.status) = 'aktif'
+                        THEN 'Aktif'
                     ELSE 'Nonaktif'
                 END AS status,
-                u.status AS raw_status,
+
+                LOWER(u.status) AS raw_status,
                 u.create_at,
                 u.update_at,
-                CASE 
-                    WHEN LOWER(u.role) IN ('owner', 'admin') THEN 'Pemilik'
-                    WHEN s.id_shift IS NOT NULL AND s.status = 'buka' THEN s.nama_shift || ' · Aktif'
-                    WHEN s.id_shift IS NOT NULL AND s.status = 'tutup' THEN s.nama_shift || ' · Ditutup'
+
+                CASE
+                    WHEN LOWER(u.role) = 'super_admin'
+                        THEN '—'
+                    WHEN LOWER(u.role) IN ('owner', 'admin')
+                        THEN '—'
+                    WHEN s.id_shift IS NOT NULL AND s.status = 'buka'
+                        THEN s.nama_shift || ' · Aktif'
+                    WHEN s.id_shift IS NOT NULL AND s.status = 'tutup'
+                        THEN s.nama_shift || ' · Ditutup'
                     ELSE '—'
                 END AS shift
+
             FROM users u
-            LEFT JOIN shift s ON u.id_user = s.id_user AND s.tanggal = CURRENT_DATE
-            ORDER BY 
-                CASE WHEN LOWER(u.role) IN ('owner', 'admin') THEN 0 ELSE 1 END,
+
+            LEFT JOIN shift s
+                ON u.id_user = s.id_user
+                AND s.tanggal = CURRENT_DATE
+
+            {$where}
+
+            ORDER BY
+                CASE
+                    WHEN LOWER(u.role) = 'super_admin' THEN 0
+                    WHEN LOWER(u.role) IN ('owner', 'admin') THEN 1
+                    ELSE 2
+                END,
                 u.id_user ASC
         ";
 
         $stmt = $this->pdo->query($sql);
+
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /**
-     * Menyimpan data pegawai/pengguna baru ke dalam database PostgreSQL
-     *
-     * @param array $data Data user [username, password, role, status]
-     * @return int|false Mengembalikan ID user baru jika berhasil, false jika gagal
-     */
-    public function simpanUser(array $data)
-    {
-        $username = trim($data['username'] ?? '');
-        $password = $data['password'] ?? '';
-        $role     = strtolower(trim($data['role'] ?? 'kasir'));
-        $status   = strtolower(trim($data['status'] ?? 'aktif'));
+    // -------------------------------------------------------------------------
+    // 6. Memeriksa Hak Akses untuk Membuat Akun
+    // -------------------------------------------------------------------------
 
-        // Normalisasi role
-        if ($role === 'pegawai') {
-            $role = 'kasir';
+    private function canManageRole(string $actorRole, string $targetRole): bool
+    {
+        $actorRole = $this->normalizeRole($actorRole);
+        $targetRole = $this->normalizeRole($targetRole);
+
+        if ($actorRole === 'super_admin') {
+            return in_array($targetRole, ['admin', 'kasir'], true);
         }
+
+        if ($actorRole === 'admin') {
+            return $targetRole === 'kasir';
+        }
+
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. Menyimpan Akun Baru
+    // -------------------------------------------------------------------------
+
+    public function simpanUser(array $data, string $actorRole)
+    {
+        $actorRole = $this->normalizeRole($actorRole);
+
+        $username = trim($data['username'] ?? '');
+        $password = (string) ($data['password'] ?? '');
+        $role = $this->normalizeRole($data['role'] ?? 'kasir');
+        $status = strtolower(trim($data['status'] ?? 'aktif'));
 
         if ($username === '' || $password === '') {
             return false;
         }
 
-        // Enkripsi password menggunakan bcrypt
-        $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+        if (strlen($username) > 50 || strlen($password) < 4) {
+            return false;
+        }
+
+        if (!$this->isValidRole($role) || !$this->isValidStatus($status)) {
+            return false;
+        }
+
+        if (!$this->canManageRole($actorRole, $role)) {
+            return false;
+        }
+
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+        if ($hashedPassword === false) {
+            return false;
+        }
 
         try {
             $sql = "
-                INSERT INTO users (username, password, role, status)
-                VALUES (:username, :password, :role, :status)
+                INSERT INTO users (
+                    username,
+                    password,
+                    role,
+                    status
+                )
+                VALUES (
+                    :username,
+                    :password,
+                    :role,
+                    :status
+                )
                 RETURNING id_user
             ";
 
             $stmt = $this->pdo->prepare($sql);
+
             $stmt->execute([
                 ':username' => $username,
                 ':password' => $hashedPassword,
-                ':role'     => $role,
-                ':status'   => $status,
+                ':role' => $role,
+                ':status' => $status,
             ]);
 
             return (int) $stmt->fetchColumn();
+
         } catch (PDOException $e) {
             error_log('[UserModel::simpanUser] ' . $e->getMessage());
             return false;
         }
     }
 
-    /**
-     * Memperbarui data pegawai/pengguna (username, role, status, dan password jika diisi)
-     *
-     * @param int $id
-     * @param array $data
-     * @return bool
-     */
-    public function updateUser(int $id, array $data): bool
-    {
+    // -------------------------------------------------------------------------
+    // 8. Memeriksa Target Akun yang Akan Diubah
+    // -------------------------------------------------------------------------
+
+    private function canManageTarget(
+        int $targetId,
+        string $actorRole,
+        string $newRole
+    ): bool {
+
+        $actorRole = $this->normalizeRole($actorRole);
+        $newRole = $this->normalizeRole($newRole);
+
+        $target = $this->findById($targetId);
+
+        if (!$target) {
+            return false;
+        }
+
+        $targetRole = $this->normalizeRole($target['role'] ?? '');
+
+        // Semua akun Super Admin dilindungi.
+        if ($targetRole === 'super_admin') {
+            return false;
+        }
+
+        if ($actorRole === 'super_admin') {
+            return in_array($targetRole, ['admin', 'kasir'], true)
+                && in_array($newRole, ['admin', 'kasir'], true);
+        }
+
+        if ($actorRole === 'admin') {
+            return $targetRole === 'kasir'
+                && $newRole === 'kasir';
+        }
+
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. Memperbarui Akun Pengguna
+    // -------------------------------------------------------------------------
+
+    public function updateUser(
+        int $id,
+        array $data,
+        string $actorRole
+    ): bool {
+
         if ($id <= 0) {
             return false;
         }
 
         $username = trim($data['username'] ?? '');
-        $role     = strtolower(trim($data['role'] ?? 'kasir'));
-        $status   = strtolower(trim($data['status'] ?? 'aktif'));
-        $password = trim($data['password'] ?? '');
+        $password = (string) ($data['password'] ?? '');
+        $role = $this->normalizeRole($data['role'] ?? 'kasir');
+        $status = strtolower(trim($data['status'] ?? 'aktif'));
 
-        // Normalisasi role
-        if ($role === 'pegawai') {
-            $role = 'kasir';
+        if ($username === '' || strlen($username) > 50) {
+            return false;
         }
 
-        if ($username === '') {
+        if ($password !== '' && strlen($password) < 4) {
+            return false;
+        }
+
+        if (!$this->isValidRole($role) || !$this->isValidStatus($status)) {
+            return false;
+        }
+
+        if (!$this->canManageTarget($id, $actorRole, $role)) {
             return false;
         }
 
         try {
-            // Jika ada perubahan password baru
+            $params = [
+                ':username' => $username,
+                ':role' => $role,
+                ':status' => $status,
+                ':id' => $id,
+            ];
+
             if ($password !== '') {
-                $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+                $hashedPassword = password_hash(
+                    $password,
+                    PASSWORD_DEFAULT
+                );
+
+                if ($hashedPassword === false) {
+                    return false;
+                }
+
                 $sql = "
-                    UPDATE users 
-                    SET username = :username,
+                    UPDATE users
+                    SET
+                        username = :username,
                         password = :password,
                         role = :role,
                         status = :status,
                         update_at = CURRENT_TIMESTAMP
                     WHERE id_user = :id
+                      AND LOWER(role) <> 'super_admin'
                 ";
-                $stmt = $this->pdo->prepare($sql);
-                return $stmt->execute([
-                    ':username' => $username,
-                    ':password' => $hashedPassword,
-                    ':role'     => $role,
-                    ':status'   => $status,
-                    ':id'       => $id,
-                ]);
+
+                $params[':password'] = $hashedPassword;
+
             } else {
-                // Update tanpa mengubah password
                 $sql = "
-                    UPDATE users 
-                    SET username = :username,
+                    UPDATE users
+                    SET
+                        username = :username,
                         role = :role,
                         status = :status,
                         update_at = CURRENT_TIMESTAMP
                     WHERE id_user = :id
+                      AND LOWER(role) <> 'super_admin'
                 ";
-                $stmt = $this->pdo->prepare($sql);
-                return $stmt->execute([
-                    ':username' => $username,
-                    ':role'     => $role,
-                    ':status'   => $status,
-                    ':id'       => $id,
-                ]);
             }
+
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+
+            return $stmt->rowCount() > 0;
+
         } catch (PDOException $e) {
             error_log('[UserModel::updateUser] ' . $e->getMessage());
             return false;
         }
     }
 
-    /**
-     * Menghapus akun pengguna dari database (jika tidak ada keterikatan transaksi/shift)
-     *
-     * @param int $id
-     * @return bool
-     */
-    public function hapusUser(int $id): bool
+    // -------------------------------------------------------------------------
+    // 10. Menghapus Akun Pengguna
+    // -------------------------------------------------------------------------
+
+    public function hapusUser(int $id, string $actorRole): bool
     {
         if ($id <= 0) {
             return false;
         }
 
+        $actorRole = $this->normalizeRole($actorRole);
+        $target = $this->findById($id);
+
+        if (!$target) {
+            return false;
+        }
+
+        $targetRole = $this->normalizeRole($target['role'] ?? '');
+
+        // Semua akun Super Admin tidak boleh dihapus.
+        if ($targetRole === 'super_admin') {
+            return false;
+        }
+
+        if ($actorRole === 'admin' && $targetRole !== 'kasir') {
+            return false;
+        }
+
+        if (
+            $actorRole === 'super_admin'
+            && !in_array($targetRole, ['admin', 'kasir'], true)
+        ) {
+            return false;
+        }
+
+        if (!in_array($actorRole, ['super_admin', 'admin'], true)) {
+            return false;
+        }
+
         try {
-            $sql = "DELETE FROM users WHERE id_user = :id";
+            $sql = "
+                DELETE FROM users
+                WHERE id_user = :id
+                  AND LOWER(role) <> 'super_admin'
+            ";
+
+            if ($actorRole === 'admin') {
+                $sql .= "
+                    AND LOWER(role) IN ('kasir', 'pegawai')
+                ";
+            }
+
             $stmt = $this->pdo->prepare($sql);
-            $stmt->execute([':id' => $id]);
+
+            $stmt->execute([
+                ':id' => $id
+            ]);
+
             return $stmt->rowCount() > 0;
+
         } catch (PDOException $e) {
             error_log('[UserModel::hapusUser] ' . $e->getMessage());
             return false;

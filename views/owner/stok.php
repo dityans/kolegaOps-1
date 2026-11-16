@@ -684,7 +684,7 @@ function eStok($value): string
     const parameterURL = new URLSearchParams(window.location.search);
 
     if (parameterURL.get('tab') === 'riwayat') {
-        gantiTab('riwayat');
+        gantiTab('riwayat');lara
     } else {
         gantiTab('daftar');
     }

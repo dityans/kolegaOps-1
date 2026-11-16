@@ -4,9 +4,23 @@
 // Sidebar Navigasi Dinamis KolegaOps POS Warkop - Responsive
 
 $currentUser = current_user() ?? [];
-$namaUser    = ucfirst((string) ($currentUser['username'] ?? 'Pengguna'));
-$roleUser    = strtolower((string) ($currentUser['role'] ?? 'kasir'));
-$roleLabel   = ($roleUser === 'owner' || $roleUser === 'admin') ? 'Pemilik · Owner' : 'Pegawai · Kasir';
+
+$namaUser = ucfirst((string) ($currentUser['username'] ?? 'Pengguna'));
+
+// Normalisasi role agar Super Admin, Admin, dan Kasir terbaca dengan benar.
+$roleUser = function_exists('normalize_role')
+    ? normalize_role((string) ($currentUser['role'] ?? 'kasir'))
+    : strtolower(trim((string) ($currentUser['role'] ?? 'kasir')));
+
+$isSuperAdmin = ($roleUser === 'super_admin');
+$isAdminArea = in_array($roleUser, ['super_admin', 'admin'], true);
+
+$roleLabel = match ($roleUser) {
+    'super_admin' => 'Super Admin',
+    'admin'       => 'Admin · Pemilik',
+    default       => 'Pegawai · Kasir',
+};
+
 $inisialUser = strtoupper(substr($namaUser, 0, 2));
 
 $curController = strtolower($_GET['controller'] ?? '');
@@ -70,12 +84,12 @@ $curAction     = strtolower($_GET['action'] ?? '');
         <!-- NAVIGASI -->
         <nav class="p-4 space-y-2 text-sm font-medium">
 
-            <?php if ($roleUser === 'owner' || $roleUser === 'admin'): ?>
+            <?php if ($isAdminArea): ?>
 
-                <!-- MENU OWNER -->
+                <!-- MENU SUPER ADMIN DAN ADMIN -->
 
                 <a href="index.php?controller=dashboard&action=dashboard_owner"
-                   class="flex items-center space-x-3 px-4 py-3 rounded-xl transition <?= ($curController === 'dashboard' && $curAction === 'dashboard_owner') ? 'bg-blue-600 text-white font-bold shadow' : 'text-blue-200 hover:bg-blue-950/60' ?>">
+                   class="flex items-center space-x-3 px-4 py-3 rounded-xl transition <?= ($curController === 'dashboard' && in_array($curAction, ['dashboard_owner', 'index'], true)) ? 'bg-blue-600 text-white font-bold shadow' : 'text-blue-200 hover:bg-blue-950/60' ?>">
                     <svg class="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
@@ -130,14 +144,14 @@ $curAction     = strtolower($_GET['action'] ?? '');
                 </a>
 
                 <a href="index.php?controller=pegawai&action=index"
-                   class="flex items-center space-x-3 px-4 py-3 rounded-xl transition <?= ($curController === 'pegawai') ? 'bg-blue-600 text-white font-bold shadow' : 'text-blue-200 hover:bg-blue-950/60' ?>">
+                   class="flex items-center space-x-3 px-4 py-3 rounded-xl transition <?= ($curController === 'pegawai' || $curController === 'user') ? 'bg-blue-600 text-white font-bold shadow' : 'text-blue-200 hover:bg-blue-950/60' ?>">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
                          viewBox="0 0 24 24" fill="none" stroke="currentColor"
                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
                         <path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>
                     </svg>
-                    <span>Kelola Pegawai</span>
+                    <span>Kelola Akun</span>
                 </a>
 
             <?php else: ?>
@@ -239,7 +253,7 @@ $curAction     = strtolower($_GET['action'] ?? '');
         <div class="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto mb-4 shadow-sm">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3-3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
             </svg>
         </div>
 
@@ -284,7 +298,6 @@ $curAction     = strtolower($_GET['action'] ?? '');
         overflow: hidden;
     }
 
-    /* SIDEBAR DESKTOP */
     .ko-sidebar {
         position: fixed;
         top: 0;
@@ -300,7 +313,6 @@ $curAction     = strtolower($_GET['action'] ?? '');
         transition: transform 0.3s ease;
     }
 
-    /* AREA KONTEN */
     body > main {
         margin-left: 16rem;
         width: calc(100% - 16rem);
@@ -323,7 +335,6 @@ $curAction     = strtolower($_GET['action'] ?? '');
         border-radius: 10px;
     }
 
-    /* HEADER MOBILE */
     .ko-mobile-header {
         display: none;
     }
@@ -332,7 +343,6 @@ $curAction     = strtolower($_GET['action'] ?? '');
         display: none;
     }
 
-    /* TABLET DAN HP */
     @media (max-width: 1023px) {
         body > main {
             margin-left: 0;
@@ -400,7 +410,6 @@ $curAction     = strtolower($_GET['action'] ?? '');
         }
     }
 
-    /* HP KECIL */
     @media (max-width: 480px) {
         body > main {
             padding: 5.25rem 0.85rem 1rem !important;
@@ -450,26 +459,23 @@ $curAction     = strtolower($_GET['action'] ?? '');
         button.setAttribute('aria-expanded', 'false');
     }
 
-    // Tutup sidebar setelah memilih menu
     document.querySelectorAll('#koSidebar nav a').forEach(function(link) {
         link.addEventListener('click', closeKolegaSidebar);
     });
 
-    // Tutup sidebar dengan tombol Escape
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape') {
             closeKolegaSidebar();
+            closeLogoutModal();
         }
     });
 
-    // Reset sidebar ketika kembali ke ukuran desktop
     window.addEventListener('resize', function() {
         if (window.innerWidth >= 1024) {
             closeKolegaSidebar();
         }
     });
 
-    // MODAL LOGOUT
     function openLogoutModal() {
         const modal = document.getElementById('logoutModal');
         const card = document.getElementById('logoutModalCard');
@@ -499,10 +505,4 @@ $curAction     = strtolower($_GET['action'] ?? '');
 
         modal.setAttribute('aria-hidden', 'true');
     }
-
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            closeLogoutModal();
-        }
-    });
 </script>

@@ -1,6 +1,8 @@
+
 <?php
 // controllers/AuthController.php
-// Controller untuk mengelola autentikasi (Login & Logout) KolegaOps
+// Controller Autentikasi Login dan Logout KolegaOps
+// Role: super_admin, admin, kasir
 
 require_once BASE_PATH . '/models/UserModel.php';
 
@@ -9,33 +11,31 @@ class AuthController
     private PDO $pdo;
     private UserModel $userModel;
 
-    /**
-     * Inisialisasi controller dengan menginjeksi instance PDO database
-     */
     public function __construct(PDO $pdo)
     {
         $this->pdo = $pdo;
         $this->userModel = new UserModel($pdo);
     }
 
-    /**
-     * Menampilkan formulir login.
-     * Jika pengguna sudah login, langsung diarahkan ke halaman dashboard/POS.
-     */
+    // -------------------------------------------------------------------------
+    // 1. Menampilkan Halaman Login
+    // -------------------------------------------------------------------------
+
     public function login(): void
     {
         if (is_logged_in()) {
             $this->redirectByRole(current_user('role'));
-            return;
         }
 
         $error = get_flash('error') ?? '';
+
         require_once BASE_PATH . '/views/auth/login.php';
     }
 
-    /**
-     * Memproses data POST dari form login dan memverifikasi ke database
-     */
+    // -------------------------------------------------------------------------
+    // 2. Memproses Login
+    // -------------------------------------------------------------------------
+
     public function process(): void
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -43,15 +43,14 @@ class AuthController
             exit;
         }
 
-        // Verifikasi token CSRF jika tersedia
-        if (isset($_POST['csrf_token']) && function_exists('csrf_verify')) {
-            csrf_verify($_POST['csrf_token']);
+        // Verifikasi CSRF
+        if (function_exists('csrf_verify')) {
+            csrf_verify($_POST['csrf_token'] ?? '');
         }
 
-        $username = trim($_POST['username'] ?? '');
-        $password = trim($_POST['password'] ?? '');
+        $username = trim((string) ($_POST['username'] ?? ''));
+        $password = (string) ($_POST['password'] ?? '');
 
-        // Validasi input tidak boleh kosong
         if ($username === '' || $password === '') {
             $error = 'Harap isi username dan password!';
             require_once BASE_PATH . '/views/auth/login.php';
@@ -59,68 +58,105 @@ class AuthController
         }
 
         try {
-            // Ambil data pengguna dari database melalui UserModel
             $user = $this->userModel->findByUsername($username);
 
-            // Validasi keberadaan akun, status keaktifan, dan kecocokan hash password
-            if ($user) {
-                // Periksa apakah akun dinonaktifkan
-                if (isset($user['status']) && strtolower($user['status']) === 'nonaktif') {
-                    $error = 'Akun Anda dinonaktifkan. Silakan hubungi owner warkop.';
-                    require_once BASE_PATH . '/views/auth/login.php';
-                    return;
-                }
-
-                // Verifikasi password hash menggunakan password_verify bawaan PHP
-                if (password_verify($password, $user['password'])) {
-                    // Simpan data login ke session secara aman
-                    set_user_session($user);
-
-                    // Arahkan ke halaman kerja sesuai role
-                    $this->redirectByRole($user['role']);
-                    return;
-                }
+            // Akun tidak ditemukan
+            if (!$user) {
+                $error = 'Username atau password salah!';
+                require_once BASE_PATH . '/views/auth/login.php';
+                return;
             }
 
-            // Jika username tidak ditemukan atau password salah
-            $error = 'Username atau password salah!';
-            require_once BASE_PATH . '/views/auth/login.php';
-            return;
+            // Periksa status akun
+            $status = strtolower(trim((string) ($user['status'] ?? '')));
+
+            if ($status !== 'aktif') {
+                $error = 'Akun Anda sedang dinonaktifkan. Silakan hubungi Admin Warkop.';
+                require_once BASE_PATH . '/views/auth/login.php';
+                return;
+            }
+
+            // Verifikasi password
+            if (!password_verify($password, (string) $user['password'])) {
+                $error = 'Username atau password salah!';
+                require_once BASE_PATH . '/views/auth/login.php';
+                return;
+            }
+
+            // Pastikan role akun dikenali
+            $role = normalize_role((string) ($user['role'] ?? ''));
+
+            $allowedRoles = [
+                'super_admin',
+                'admin',
+                'kasir'
+            ];
+
+            if (!in_array($role, $allowedRoles, true)) {
+                $error = 'Role akun tidak dikenali. Silakan hubungi administrator sistem.';
+                require_once BASE_PATH . '/views/auth/login.php';
+                return;
+            }
+
+            // Simpan session login
+            $user['role'] = $role;
+            set_user_session($user);
+
+            // Arahkan sesuai role
+            $this->redirectByRole($role);
 
         } catch (PDOException $e) {
-            $error = 'Terjadi kendala pada sistem database: ' . $e->getMessage();
+            error_log('[AuthController::process] ' . $e->getMessage());
+
+            // Jangan tampilkan detail database kepada pengguna.
+            $error = 'Terjadi kendala saat menghubungkan ke database. Silakan coba kembali.';
             require_once BASE_PATH . '/views/auth/login.php';
             return;
         }
     }
 
-    /**
-     * Memproses logout pengguna
-     */
+    // -------------------------------------------------------------------------
+    // 3. Logout
+    // -------------------------------------------------------------------------
+
     public function logout(): void
     {
         destroy_session();
+
         header('Location: index.php?controller=auth&action=login');
         exit;
     }
 
-    /**
-     * Pengalihan halaman (redirection) berdasarkan peran (role) pengguna:
-     * - 'owner' / 'admin' -> Dashboard Owner
-     * - 'kasir'           -> Halaman POS Kasir
-     *
-     * @param string|null $role
-     */
+    // -------------------------------------------------------------------------
+    // 4. Pengalihan Berdasarkan Role
+    // -------------------------------------------------------------------------
+
     private function redirectByRole(?string $role): void
     {
-        $roleClean = strtolower(trim((string) $role));
+        $roleClean = normalize_role($role);
 
-        if ($roleClean === 'owner' || $roleClean === 'admin') {
-            header('Location: index.php?controller=dashboard&action=dashboard_owner');
-        } else {
-            // Role kasir diarahkan langsung ke halaman operasional POS
-            header('Location: index.php?controller=dashboard&action=dashboard_pegawai');
+        if (in_array(
+            $roleClean,
+            ['super_admin', 'admin'],
+            true
+        )) {
+            header(
+                'Location: index.php?controller=dashboard&action=dashboard_owner'
+            );
+            exit;
         }
+
+        if ($roleClean === 'kasir') {
+            header(
+                'Location: index.php?controller=dashboard&action=dashboard_pegawai'
+            );
+            exit;
+        }
+
+        // Role tidak dikenal
+        destroy_session();
+
+        header('Location: index.php?controller=auth&action=login');
         exit;
     }
 }
